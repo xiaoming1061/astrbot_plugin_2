@@ -123,6 +123,10 @@ class FactAggregatorPlugin(Star):
             #
             # 阻断AstrBot默认LLM流程
             #
+            msg = event.get_message_str().strip()
+
+            if not msg.startswith("/"):
+                event.stop_event()
 
         except Exception as e:
 
