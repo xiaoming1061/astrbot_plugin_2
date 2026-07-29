@@ -70,28 +70,26 @@ class FactAggregatorPlugin(Star):
     ):
         msg = event.get_message_str()
 
-        logger.info(
-            f"[FACT] raw_msg={repr(msg)}"
-        )
-
-        logger.info(
-            f"[FACT] components={event.get_messages()}"
-        )
-        
-        msg = event.get_message_str()
-
         # 空消息过滤
         if not msg or not msg.strip():
             return
 
-        msg = msg.strip()
+        # 使用原始组件判断命令
+        for comp in event.get_messages():
 
-        # 命令放行
-        if msg.startswith("/"):
-            logger.info(
-                "[FACT] command bypass"
-            )
-            return
+            text = getattr(
+                comp,
+                "text",
+                ""
+            ).strip()
+
+            if text.startswith(("/", "#", ".", "!")):
+                logger.info(
+                    "[FACT] command bypass"
+                )
+                return
+
+        msg = msg.strip()
 
         try:
 
