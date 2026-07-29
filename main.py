@@ -39,6 +39,18 @@ class SessionBuffer:
 
 class FactAggregatorPlugin(Star):
 
+    def __init__(
+        self,
+        context: Context
+    ):
+        super().__init__(context)
+
+        self.buffers = {}
+
+        logger.info(
+            "Fact Layer Loaded"
+        )
+
     async def terminate(self):
 
         for buffer in self.buffers.values():
