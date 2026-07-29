@@ -3,4 +3,4 @@ display_name: 消息聚合 # 用于展示的名字，可以是方便人类阅读
 desc: 自动合并用户连续发送的消息后再交给 AI 处理，减少无效推理，提升对碎片化输入的理解能力。 # 插件简短描述
 version: v1.0.0 # 插件版本号。格式：v1.1.1 或者 v1.1
 author: xiao_ming1001 # 作者
-repo: https://github.com/Soulter/astrbot_plugin_smoothchat # 插件的仓库地址
+repo: https://github.com/xiaoming1061/astrbot_plugin_smoothchat # 插件的仓库地址
