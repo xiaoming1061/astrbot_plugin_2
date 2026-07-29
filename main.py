@@ -2,6 +2,7 @@ import asyncio
 import json
 import time
 import inspect
+from astrbot.api import AstrBotConfig
 from dataclasses import dataclass, field
 
 import astrbot.api.message_components as Comp
@@ -16,10 +17,6 @@ from astrbot.api.event.filter import (
     EventMessageType,
 )
 from astrbot.api.star import Context, Star
-
-
-FLUSH_TIMEOUT = 5.0
-
 
 @dataclass
 class BufferedMessage:
@@ -41,15 +38,26 @@ class FactAggregatorPlugin(Star):
 
     def __init__(
         self,
-        context: Context
+        context: Context,
+        config: AstrBotConfig
     ):
         super().__init__(context)
+
+        self.config = config
 
         self.buffers = {}
 
         logger.info(
             "Fact Layer Loaded"
         )
+
+    def debug(self, msg):
+
+        if self.config.get(
+            "debug_log",
+            False
+        ):
+            logger.info(msg)
 
     async def terminate(self):
 
@@ -75,6 +83,10 @@ class FactAggregatorPlugin(Star):
             return
 
         # 使用原始组件判断命令
+        prefixes = tuple(
+            self.config["command_prefixes"]
+        )
+
         for comp in event.get_messages():
 
             text = getattr(
@@ -83,8 +95,8 @@ class FactAggregatorPlugin(Star):
                 ""
             ).strip()
 
-            if text.startswith(("/", "#", ".", "!")):
-                logger.info(
+            if text.startswith(prefixes):
+                self.debug(
                     "[FACT] command bypass"
                 )
                 return
@@ -143,11 +155,10 @@ class FactAggregatorPlugin(Star):
         self,
         key
     ):
-
         try:
 
             await asyncio.sleep(
-                FLUSH_TIMEOUT
+                self.config["flush_timeout"]
             )
 
             await self._flush(key)
@@ -266,11 +277,16 @@ class FactAggregatorPlugin(Star):
 
                 if conv.history:
 
+                    history_limit = self.config.get(
+                        "history_limit",
+                        20
+                    )
+
                     contexts = json.loads(
                         conv.history
-                    )[-20:]
+                    )[-history_limit:]
 
-                    logger.info(
+                    self.debug(
                         f"[FACT] contexts={len(contexts)}"
                     )
 
@@ -291,7 +307,7 @@ class FactAggregatorPlugin(Star):
 
         answer = resp.completion_text
 
-        logger.info(
+        self.debug(
             f"[FACT] answer={answer}"
         )
 
