@@ -1,0 +1,25 @@
+{
+  "flush_timeout": {
+    "description": "消息聚合等待时间（秒）",
+    "type": "float",
+    "default": 5.0
+  },
+
+  "history_limit": {
+    "description": "注入历史消息数量",
+    "type": "int",
+    "default": 20
+  },
+
+  "command_prefixes": {
+    "description": "命令前缀",
+    "type": "list",
+    "default": ["/"]
+  },
+
+  "debug_log": {
+    "description": "启用调试日志",
+    "type": "bool",
+    "default": false
+  }
+}
