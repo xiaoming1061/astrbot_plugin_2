@@ -50,6 +50,45 @@ class FactAggregatorPlugin(Star):
         logger.info(
             "Fact Layer Loaded"
         )
+        
+    def check_group_enabled(
+        self,
+        event
+    ):
+        mode = self.config.get(
+            "group_mode",
+            "off"
+        )
+
+        groups = {
+            str(x)
+            for x in self.config.get(
+                "group_list",
+                []
+            )
+        }
+
+        group_id = getattr(
+            event,
+            "group_id",
+            None
+        )
+
+        if not group_id:
+            return True
+
+        group_id = str(group_id)
+
+        if mode == "off":
+            return True
+
+        if mode == "whitelist":
+            return group_id in groups
+
+        if mode == "blacklist":
+            return group_id not in groups
+
+        return True
 
     def debug(self, msg):
 
@@ -76,6 +115,11 @@ class FactAggregatorPlugin(Star):
         self,
         event: AstrMessageEvent
     ):
+        if not self.check_group_enabled(
+            event
+        ):
+            return
+        
         msg = event.get_message_str()
 
         # 空消息过滤
@@ -135,12 +179,46 @@ class FactAggregatorPlugin(Star):
                 f"[BUFFER] size={len(buffer.messages)}"
             )
 
+            # 检测是否立即提交
+            should_flush = False
+
+            for comp in event.get_messages():
+
+                text = getattr(
+                    comp,
+                    "text",
+                    ""
+                ).strip()
+
+                endings = tuple(
+                    self.config.get(
+                        "auto_flush_endings",
+                        []
+                    )
+                )
+
+                if text.endswith(endings):
+                    should_flush = True
+                    break
+
             if buffer.flush_task:
                 buffer.flush_task.cancel()
 
-            buffer.flush_task = asyncio.create_task(
-                self._delayed_flush(key)
-            )
+            if should_flush:
+
+                self.debug(
+                    "[FACT] auto flush"
+                )
+
+                asyncio.create_task(
+                    self._flush(key)
+                )
+
+            else:
+
+                buffer.flush_task = asyncio.create_task(
+                    self._delayed_flush(key)
+                )
 
             event.stop_event()
 
