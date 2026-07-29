@@ -4,29 +4,26 @@
     "type": "float",
     "default": 5.0
   },
-
   "history_limit": {
     "description": "注入历史消息数量",
     "type": "int",
     "default": 20
   },
-
   "command_prefixes": {
     "description": "命令前缀",
     "type": "list",
-    "default": ["/"]
+    "default": [
+      "/"
+    ]
   },
-
   "debug_log": {
     "description": "启用调试日志",
     "type": "bool",
     "default": false
   },
-  
-  
   "group_mode": {
-    "type": "string",
     "description": "群聊过滤模式",
+    "type": "string",
     "default": "off",
     "options": [
       "off",
@@ -34,16 +31,14 @@
       "blacklist"
     ]
   },
-
   "group_list": {
-    "type": "list",
     "description": "群号列表",
+    "type": "list",
     "default": []
   },
-
   "auto_flush_endings": {
-    "type": "list",
     "description": "检测到这些结尾时立即提交",
+    "type": "list",
     "default": [
       "！",
       "？",
