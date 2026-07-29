@@ -21,5 +21,34 @@
     "description": "启用调试日志",
     "type": "bool",
     "default": false
+  },
+  
+  
+  "group_mode": {
+    "type": "string",
+    "description": "群聊过滤模式",
+    "default": "off",
+    "options": [
+      "off",
+      "whitelist",
+      "blacklist"
+    ]
+  },
+
+  "group_list": {
+    "type": "list",
+    "description": "群号列表",
+    "default": []
+  },
+
+  "auto_flush_endings": {
+    "type": "list",
+    "description": "检测到这些结尾时立即提交",
+    "default": [
+      "！",
+      "？",
+      "!",
+      "?"
+    ]
   }
 }
