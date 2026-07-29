@@ -71,6 +71,13 @@ class FactAggregatorPlugin(Star):
         logger.info(
         f"before call_llm={event.call_llm}"
     )
+        msg = event.get_message_str()
+
+        if not msg or not msg.strip():
+            logger.info(
+                "[FACT] empty message ignored"
+            )
+            return
         
         self.last_event = event
 
