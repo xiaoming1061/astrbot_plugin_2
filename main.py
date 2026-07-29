@@ -237,10 +237,12 @@ class FactAggregatorPlugin(Star):
         logger.info(
             "[SEND] success"
         )
-        
-        def _fact_system_prompt(self):
 
-    return """
+    def _fact_system_prompt(
+        self
+    ):
+
+        return """
 你将收到一种特殊格式：
 
 <FACT_CONTEXT>
@@ -254,63 +256,94 @@ class FactAggregatorPlugin(Star):
 3. 不要分析 FACT_CONTEXT 标签。
 4. 不要解释 FACT_CONTEXT 机制。
 5. 不要总结 FACT_CONTEXT 结构。
-6. 保持你原本的对话风格。
-7. 直接回应用户真正想表达的内容。
+6. 保持你当前的人格和对话风格。
+7. 像正常聊天一样理解并回应用户。
 """
 
     def _build_fact_prompt(
-    self,
-    batch
-):
+        self,
+        batch
+    ):
 
-    return (
-        self._fact_system_prompt()
-        + "\n\n"
-        + self._render_fact_context(
-            batch
+        return (
+            self._fact_system_prompt()
+            + "\n\n"
+            + self._render_fact_context(
+                batch
+            )
         )
-    )
-    
+
     def _render_fact_context(
-    self,
-    batch
-):
+        self,
+        batch
+    ):
 
-    lines = []
+        lines = []
 
-    lines.append(
-        "<FACT_CONTEXT>"
-    )
-
-    lines.append("")
-
-    for msg in batch["messages"]:
-
-        for comp in msg["components"]:
-
-            if (
-                comp.get("component_type")
-                == "Plain"
-            ):
-
-                text = comp.get(
-                    "text",
-                    ""
-                )
-
-                if text.strip():
-
-                    lines.append(
-                        text
-                    )
+        lines.append(
+            "<FACT_CONTEXT>"
+        )
 
         lines.append("")
 
-    lines.append(
-        "</FACT_CONTEXT>"
-    )
+        for msg in batch["messages"]:
 
-    return "\n".join(lines)
+            for comp in msg["components"]:
+
+                component_type = comp.get(
+                    "component_type"
+                )
+
+                if component_type == "Plain":
+
+                    text = comp.get(
+                        "text",
+                        ""
+                    )
+
+                    if text.strip():
+
+                        lines.append(
+                            text
+                        )
+
+                elif component_type == "Image":
+
+                    lines.append(
+                        "[IMAGE]"
+                    )
+
+                elif component_type == "At":
+
+                    lines.append(
+                        "[AT]"
+                    )
+
+                elif component_type == "Record":
+
+                    lines.append(
+                        "[VOICE]"
+                    )
+
+                elif component_type == "Video":
+
+                    lines.append(
+                        "[VIDEO]"
+                    )
+
+                elif component_type == "File":
+
+                    lines.append(
+                        "[FILE]"
+                    )
+
+            lines.append("")
+
+        lines.append(
+            "</FACT_CONTEXT>"
+        )
+
+        return "\n".join(lines)
 
     def _build_batch(
         self,
