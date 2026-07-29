@@ -237,21 +237,80 @@ class FactAggregatorPlugin(Star):
         logger.info(
             "[SEND] success"
         )
+        
+        def _fact_system_prompt(self):
+
+    return """
+你将收到一种特殊格式：
+
+<FACT_CONTEXT>
+...
+</FACT_CONTEXT>
+
+规则：
+
+1. FACT_CONTEXT 内部内容表示用户短时间内连续发送的消息。
+2. 应将这些内容视为一次连续输入。
+3. 不要分析 FACT_CONTEXT 标签。
+4. 不要解释 FACT_CONTEXT 机制。
+5. 不要总结 FACT_CONTEXT 结构。
+6. 保持你原本的对话风格。
+7. 直接回应用户真正想表达的内容。
+"""
 
     def _build_fact_prompt(
-        self,
-        batch
-    ):
+    self,
+    batch
+):
 
-        return (
-            "<FACT_DATA>"
-            + json.dumps(
-                batch,
-                ensure_ascii=False,
-                separators=(",", ":")
-            )
-            + "</FACT_DATA>"
+    return (
+        self._fact_system_prompt()
+        + "\n\n"
+        + self._render_fact_context(
+            batch
         )
+    )
+    
+    def _render_fact_context(
+    self,
+    batch
+):
+
+    lines = []
+
+    lines.append(
+        "<FACT_CONTEXT>"
+    )
+
+    lines.append("")
+
+    for msg in batch["messages"]:
+
+        for comp in msg["components"]:
+
+            if (
+                comp.get("component_type")
+                == "Plain"
+            ):
+
+                text = comp.get(
+                    "text",
+                    ""
+                )
+
+                if text.strip():
+
+                    lines.append(
+                        text
+                    )
+
+        lines.append("")
+
+    lines.append(
+        "</FACT_CONTEXT>"
+    )
+
+    return "\n".join(lines)
 
     def _build_batch(
         self,
