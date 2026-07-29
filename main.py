@@ -68,7 +68,16 @@ class FactAggregatorPlugin(Star):
         self,
         event: AstrMessageEvent
     ):
+        msg = event.get_message_str()
 
+        logger.info(
+            f"[FACT] raw_msg={repr(msg)}"
+        )
+
+        logger.info(
+            f"[FACT] components={event.get_messages()}"
+        )
+        
         msg = event.get_message_str()
 
         # 空消息过滤
