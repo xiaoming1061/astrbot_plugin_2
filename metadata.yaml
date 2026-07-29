@@ -1,6 +1,6 @@
-name: astrbot_plugin_2 # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
-display_name: astrbot_plugin_2 # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
-desc: AstrBot 插件示例。 # 插件简短描述
-version: v0.0.1 # 插件版本号。格式：v1.1.1 或者 v1.1
+name: astrbot_plugin_SmoothChat # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
+display_name: 消息聚合 # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
+desc: 自动合并用户连续发送的消息后再交给 AI 处理，减少无效推理，提升对碎片化输入的理解能力。 # 插件简短描述
+version: v1.0.0 # 插件版本号。格式：v1.1.1 或者 v1.1
 author: xiao_ming1001 # 作者
 repo: https://github.com/Soulter/astrbot_plugin_2 # 插件的仓库地址
