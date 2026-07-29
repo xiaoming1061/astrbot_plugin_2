@@ -1,14 +1,199 @@
-# astrbot-plugin-helloworld
+# 消息聚合（SmoothChat）
 
-AstrBot 插件模板 / A template plugin for AstrBot plugin feature
+将用户短时间内连续发送的消息自动合并后再交给 AI 处理，让 AI 能够像阅读一段完整输入一样理解用户意图。
 
-> [!NOTE]
-> This repo is just a template of [AstrBot](https://github.com/AstrBotDevs/AstrBot) Plugin.
-> 
-> [AstrBot](https://github.com/AstrBotDevs/AstrBot) is an agentic assistant for both personal and group conversations. It can be deployed across dozens of mainstream instant messaging platforms, including QQ, Telegram, Feishu, DingTalk, Slack, LINE, Discord, Matrix, etc. In addition, it provides a reliable and extensible conversational AI infrastructure for individuals, developers, and teams. Whether you need a personal AI companion, an intelligent customer support agent, an automation assistant, or an enterprise knowledge base, AstrBot enables you to quickly build AI applications directly within your existing messaging workflows.
+---
 
-# Supports
+## 功能介绍
 
-- [AstrBot Repo](https://github.com/AstrBotDevs/AstrBot)
-- [AstrBot Plugin Development Docs (Chinese)](https://docs.astrbot.app/dev/star/plugin-new.html)
-- [AstrBot Plugin Development Docs (English)](https://docs.astrbot.app/en/dev/star/plugin-new.html)
+许多用户习惯拆分发送消息：
+
+```text
+今天
+北京
+天气怎么样
+```
+
+默认情况下，AI 可能会对每条消息单独进行思考和回复。
+
+启用消息聚合（SmoothChat）后，上述内容会被自动合并为一次输入：
+
+```text
+今天
+北京
+天气怎么样
+```
+
+在用户停止发送消息一段时间后，再统一提交给 AI 处理。
+
+这样能够：
+
+- 降低碎片化输入带来的理解偏差
+- 减少无意义推理次数
+- 提高连续对话体验
+- 更符合真实聊天习惯
+
+---
+
+## 重要说明
+
+安装消息聚合（SmoothChat）后，AstrBot 命令必须使用 `/` 开头。
+
+例如：
+
+✅ 正确：
+
+```text
+/help
+/persona
+```
+
+❌ 错误：
+
+```text
+help
+persona
+```
+
+未以 `/` 开头的内容会被视为普通聊天消息，并进入消息聚合流程。
+
+---
+
+## 配置说明
+
+### flush_timeout
+
+消息聚合等待时间（秒）。
+
+默认值：
+
+```json
+5.0
+```
+
+说明：
+
+当用户停止发送消息达到指定时间后，才会触发 AI 回复。
+
+用户连续发送：
+
+```text
+今天
+北京
+天气怎么样
+```
+
+若每条消息间隔小于 5 秒，将会被视为一次输入。
+
+---
+
+### history_limit
+
+注入给 AI 的历史消息数量。
+
+默认值：
+
+```json
+20
+```
+
+说明：
+
+数值越大，上下文连续性越强，但会增加 Token 消耗。
+
+推荐范围：
+
+```text
+10 ~ 30
+```
+
+---
+
+### command_prefixes
+
+命令前缀。
+
+默认值：
+
+```json
+  "/"
+```
+
+说明：
+
+匹配此前缀的消息不会进入聚合流程，而是交由 AstrBot 原生命令系统处理。
+
+---
+
+### debug_log
+
+调试日志开关。
+
+默认值：
+
+```json
+false
+```
+
+开启后会输出详细运行日志，用于问题排查。
+
+---
+
+## 默认配置
+
+```json
+{
+  "flush_timeout": 5.0,
+  "history_limit": 20,
+  "command_prefixes": [
+    "/"
+  ],
+  "debug_log": false
+}
+```
+
+---
+
+## 推荐配置
+
+### 默认模式
+
+```json
+{
+  "flush_timeout": 5.0,
+  "history_limit": 20
+}
+```
+
+### 快速响应模式
+
+```json
+{
+  "flush_timeout": 3.0,
+  "history_limit": 10
+}
+```
+
+### 长对话模式
+
+```json
+{
+  "flush_timeout": 10.0,
+  "history_limit": 30
+}
+```
+
+---
+
+## 版本
+
+**消息聚合（SmoothChat） v1.0**
+
+- 连续消息自动聚合
+- 保留 AstrBot 会话上下文
+- 支持群聊与私聊
+- 自动绕过 AstrBot 指令
+- 支持配置化管理
+- 兼容 NapCat 等常见适配器
+
+让 AI 更好地理解用户真正想表达的内容。 🚀
