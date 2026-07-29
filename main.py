@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+import inspect
 from dataclasses import dataclass, field
 
 import astrbot.api.message_components as Comp
@@ -38,13 +39,17 @@ class SessionBuffer:
 
 class FactAggregatorPlugin(Star):
 
-    def __init__(self, context: Context):
+    def __init__(
+        self,
+        context: Context
+    ):
         super().__init__(context)
 
         self.buffers = {}
+        self.last_event = None
 
         logger.info(
-            "Fact Layer V3.3 Final Loaded"
+            "Fact Layer Loaded"
         )
 
     async def terminate(self):
@@ -54,6 +59,7 @@ class FactAggregatorPlugin(Star):
             if buffer.flush_task:
                 buffer.flush_task.cancel()
 
+
     @event_message_type(
         EventMessageType.ALL,
         priority=999999
@@ -62,7 +68,7 @@ class FactAggregatorPlugin(Star):
         self,
         event: AstrMessageEvent
     ):
-
+        self.last_event = event
         try:
 
             components = [
@@ -199,20 +205,21 @@ class FactAggregatorPlugin(Star):
         )
 
         logger.info(
-            f"[LLM] provider={provider_id}"
+            f"[AGENT] provider={provider_id}"
         )
 
         logger.info(
-            "\n========== FACT PROMPT ==========\n"
+            "\n========== FACT CONTEXT ==========\n"
         )
 
         logger.info(prompt)
 
         logger.info(
-            "\n================================\n"
+            "\n==================================\n"
         )
 
-        llm_resp = await self.context.llm_generate(
+        llm_resp = await self.context.tool_loop_agent(
+            event=self.last_event,
             chat_provider_id=provider_id,
             prompt=prompt,
         )
