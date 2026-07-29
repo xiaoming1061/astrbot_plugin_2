@@ -39,19 +39,6 @@ class SessionBuffer:
 
 class FactAggregatorPlugin(Star):
 
-    def __init__(
-        self,
-        context: Context
-    ):
-        super().__init__(context)
-
-        self.buffers = {}
-        self.last_event = None
-
-        logger.info(
-            "Fact Layer Loaded"
-        )
-
     async def terminate(self):
 
         for buffer in self.buffers.values():
@@ -64,22 +51,26 @@ class FactAggregatorPlugin(Star):
         EventMessageType.ALL,
         priority=999999
     )
+
     async def on_message(
         self,
         event: AstrMessageEvent
     ):
-        logger.info(
-        f"before call_llm={event.call_llm}"
-    )
+
         msg = event.get_message_str()
 
+        # 空消息过滤
         if not msg or not msg.strip():
+            return
+
+        msg = msg.strip()
+
+        # 命令放行
+        if msg.startswith("/"):
             logger.info(
-                "[FACT] empty message ignored"
+                "[FACT] command bypass"
             )
             return
-        
-        self.last_event = event
 
         try:
 
@@ -120,16 +111,13 @@ class FactAggregatorPlugin(Star):
                 self._delayed_flush(key)
             )
 
-            #
-            # 阻断AstrBot默认LLM流程
-            #
-            msg = event.get_message_str().strip()
+            event.stop_event()
 
-            if not msg.startswith("/"):
-                event.stop_event()
+            logger.info(
+                "[FACT] chat intercepted"
+            )
 
         except Exception as e:
-
             logger.exception(e)
 
     async def _delayed_flush(
