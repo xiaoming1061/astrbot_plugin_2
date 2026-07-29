@@ -1,7 +1,6 @@
 import asyncio
 import json
 import time
-import inspect
 from astrbot.api import AstrBotConfig
 from dataclasses import dataclass, field
 
@@ -48,47 +47,58 @@ class FactAggregatorPlugin(Star):
         self.buffers = {}
 
         logger.info(
-            "Fact Layer Loaded"
+            "消息聚合（SmoothChat）已加载"
         )
         
     def check_group_enabled(
         self,
-        event
-    ):
+        event: AstrMessageEvent
+    ) -> bool:
+
+        # 私聊不受群聊名单影响
+        if event.is_private_chat():
+            return True
+
         mode = self.config.get(
             "group_mode",
             "off"
         )
 
         groups = {
-            str(x)
-            for x in self.config.get(
+            str(item).strip()
+            for item in self.config.get(
                 "group_list",
                 []
             )
+            if str(item).strip()
         }
 
-        group_id = getattr(
-            event,
-            "group_id",
-            None
-        )
+        group_id = event.get_group_id()
 
-        if not group_id:
+        if group_id is None:
+            self.debug(
+                "[FACT] 无法获取群号，默认放行"
+            )
             return True
 
-        group_id = str(group_id)
-
-        if mode == "off":
-            return True
+        group_id = str(group_id).strip()
 
         if mode == "whitelist":
-            return group_id in groups
+            enabled = group_id in groups
 
-        if mode == "blacklist":
-            return group_id not in groups
+        elif mode == "blacklist":
+            enabled = group_id not in groups
 
-        return True
+        else:
+            enabled = True
+
+        self.debug(
+            f"[FACT] group_id={group_id}, "
+            f"group_mode={mode}, "
+            f"group_enabled={enabled}"
+        )
+
+        return enabled
 
     def debug(self, msg):
 
@@ -115,43 +125,47 @@ class FactAggregatorPlugin(Star):
         self,
         event: AstrMessageEvent
     ):
-        if not self.check_group_enabled(
-            event
-        ):
-            return
-        
         msg = event.get_message_str()
 
         # 空消息过滤
         if not msg or not msg.strip():
             return
 
-        # 使用原始组件判断命令
+        raw_components = event.get_messages()
+
+        # AstrBot 命令优先放行
         prefixes = tuple(
-            self.config["command_prefixes"]
+            self.config.get(
+                "command_prefixes",
+                ["/"]
+            )
         )
 
-        for comp in event.get_messages():
+        if prefixes:
+            for comp in raw_components:
+                text = getattr(
+                    comp,
+                    "text",
+                    ""
+                ).strip()
 
-            text = getattr(
-                comp,
-                "text",
-                ""
-            ).strip()
+                if text.startswith(prefixes):
+                    self.debug(
+                        "[FACT] command bypass"
+                    )
+                    return
 
-            if text.startswith(prefixes):
-                self.debug(
-                    "[FACT] command bypass"
-                )
-                return
-
-        msg = msg.strip()
+        # 群聊白名单/黑名单只作用于普通消息
+        if not self.check_group_enabled(event):
+            self.debug(
+                "[FACT] group bypass"
+            )
+            return
 
         try:
-
             components = [
-                self.serialize_component(c)
-                for c in event.get_messages()
+                self.serialize_component(comp)
+                for comp in raw_components
             ]
 
             key = (
@@ -175,68 +189,77 @@ class FactAggregatorPlugin(Star):
                 )
             )
 
-            logger.info(
-                f"[BUFFER] size={len(buffer.messages)}"
+            self.debug(
+                f"[FACT] buffer_size={len(buffer.messages)}"
             )
 
-            # 检测是否立即提交
+            # 检测是否由固定结束符立即提交
             should_flush = False
 
-            for comp in event.get_messages():
-
-                text = getattr(
-                    comp,
-                    "text",
-                    ""
-                ).strip()
-
-                endings = tuple(
-                    self.config.get(
-                        "auto_flush_endings",
-                        []
-                    )
+            endings = tuple(
+                self.config.get(
+                    "auto_flush_endings",
+                    []
                 )
+            )
 
-                if text.endswith(endings):
-                    should_flush = True
-                    break
+            if endings:
+                for comp in raw_components:
+                    text = getattr(
+                        comp,
+                        "text",
+                        ""
+                    ).rstrip()
 
+                    if text.endswith(endings):
+                        should_flush = True
+                        break
+
+            # 取消之前的等待任务
             if buffer.flush_task:
                 buffer.flush_task.cancel()
 
             if should_flush:
-
                 self.debug(
                     "[FACT] auto flush"
                 )
 
-                asyncio.create_task(
+                buffer.flush_task = asyncio.create_task(
                     self._flush(key)
                 )
 
             else:
-
                 buffer.flush_task = asyncio.create_task(
                     self._delayed_flush(key)
                 )
 
+            # 阻断 AstrBot 对普通消息的默认回复
             event.stop_event()
 
-            logger.info(
+            self.debug(
                 "[FACT] chat intercepted"
             )
 
-        except Exception as e:
-            logger.exception(e)
-
+        except Exception:
+            logger.exception(
+                "[FACT] failed to buffer message"
+            )
+            
     async def _delayed_flush(
         self,
         key
     ):
         try:
 
+            flush_timeout = float(
+                self.config.get(
+                    "flush_timeout",
+                    5.0
+                )
+            )
+
             await asyncio.sleep(
-                self.config["flush_timeout"]
+                max(0.1, flush_timeout)
             )
 
             await self._flush(key)
@@ -360,9 +383,21 @@ class FactAggregatorPlugin(Star):
                         20
                     )
 
-                    contexts = json.loads(
+                    history_limit = int(
+                        self.config.get(
+                            "history_limit",
+                            20
+                        )
+                    )
+
+                    history = json.loads(
                         conv.history
-                    )[-history_limit:]
+                    )
+
+                    if history_limit > 0:
+                        contexts = history[-history_limit:]
+                    else:
+                        contexts = []
 
                     self.debug(
                         f"[FACT] contexts={len(contexts)}"
