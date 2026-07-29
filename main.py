@@ -68,7 +68,12 @@ class FactAggregatorPlugin(Star):
         self,
         event: AstrMessageEvent
     ):
+        logger.info(
+        f"before call_llm={event.call_llm}"
+    )
+        
         self.last_event = event
+
         try:
 
             components = [
@@ -111,7 +116,6 @@ class FactAggregatorPlugin(Star):
             #
             # 阻断AstrBot默认LLM流程
             #
-            event.stop_event()
 
         except Exception as e:
 
@@ -142,7 +146,6 @@ class FactAggregatorPlugin(Star):
         self,
         key
     ):
-
         buffer = self.buffers.get(key)
 
         if not buffer:
@@ -178,23 +181,33 @@ class FactAggregatorPlugin(Star):
 
         try:
 
+            logger.info(
+                "[FACT] entering _process_batch"
+            )
+
             await self._process_batch(
                 batch
             )
 
-        except Exception as e:
+            logger.info(
+                "[FACT] _process_batch finished"
+            )
 
-            logger.exception(e)
+        except Exception:
+            logger.exception(
+                "[FACT] process failed"
+            )
 
     async def _process_batch(
         self,
         batch
     ):
+        logger.info("[FACT] start")
 
         umo = batch["session"]["umo"]
 
-        provider_id = (
-            await self.context
+        provider_id = await (
+            self.context
             .get_current_chat_provider_id(
                 umo=umo
             )
@@ -204,68 +217,102 @@ class FactAggregatorPlugin(Star):
             batch
         )
 
-        logger.info(
-            f"[AGENT] provider={provider_id}"
-        )
+        contexts = None
+
+        try:
+
+            cid = await (
+                self.context.conversation_manager
+                .get_curr_conversation_id(
+                    umo
+                )
+            )
+
+            logger.info(
+                f"[FACT] cid={cid}"
+            )
+
+            if cid:
+
+                conv = await (
+                    self.context.conversation_manager
+                    .get_conversation(
+                        umo,
+                        cid
+                    )
+                )
+
+                logger.info(
+                    f"[FACT] history_len={len(conv.history)}"
+                )
+
+                if conv.history:
+
+                    contexts = json.loads(
+                        conv.history
+                    )[-20:]
+
+                    logger.info(
+                        f"[FACT] contexts={len(contexts)}"
+                    )
+
+        except Exception:
+            logger.exception(
+                "[FACT] load history failed"
+            )
 
         logger.info(
-            "\n========== FACT CONTEXT ==========\n"
+            f"[FACT] provider={provider_id}"
         )
 
-        logger.info(prompt)
-
-        logger.info(
-            "\n==================================\n"
-        )
-
-        llm_resp = await self.context.tool_loop_agent(
-            event=self.last_event,
+        resp = await self.context.llm_generate(
             chat_provider_id=provider_id,
-            prompt=prompt,
+            contexts=contexts,
+            prompt=prompt
         )
 
-        answer = llm_resp.completion_text
+        answer = resp.completion_text
 
         logger.info(
-            f"[LLM RESPONSE] {answer}"
+            f"[FACT] answer={answer}"
         )
 
-        message_chain = MessageChain()
+        chain = MessageChain()
 
-        message_chain.chain.append(
+        chain.chain.append(
             Comp.Plain(answer)
         )
 
         await self.context.send_message(
             umo,
-            message_chain
+            chain
         )
 
         logger.info(
-            "[SEND] success"
+            "[FACT] done"
         )
 
     def _fact_system_prompt(
-        self
-    ):
+            self
+        ):
 
-        return """
-你将收到一种特殊格式：
+            return """
+    你将收到一种特殊格式：
 
-<FACT_CONTEXT>
-...
-</FACT_CONTEXT>
+    <FACT_CONTEXT>
+    ...
+    </FACT_CONTEXT>
 
-规则：
+    规则：
 
-1. FACT_CONTEXT 内部内容表示用户短时间内连续发送的消息。
-2. 应将这些内容视为一次连续输入。
-3. 不要分析 FACT_CONTEXT 标签。
-4. 不要解释 FACT_CONTEXT 机制。
-5. 不要总结 FACT_CONTEXT 结构。
-6. 保持你当前的人格和对话风格。
-7. 像正常聊天一样理解并回应用户。
-"""
+    1. FACT_CONTEXT 内部内容表示用户短时间内连续发送的消息。
+    2. 应将这些内容视为一次连续输入。
+    3. 不要分析 FACT_CONTEXT 标签。
+    4. 不要解释 FACT_CONTEXT 机制。
+    5. 不要总结 FACT_CONTEXT 结构。
+    6. 保持你当前的人格和对话风格。
+    7. 像正常聊天一样理解并回应用户。
+    """
 
     def _build_fact_prompt(
         self,
