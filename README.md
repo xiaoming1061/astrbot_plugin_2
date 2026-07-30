@@ -7,7 +7,7 @@
 ## 致谢与来源
 
 SmoothChat 的 AstrBot 原生事件重建及事件生命周期处理方案，
-参考并改编自 原项目地址。
+参考并改编自 https://github.com/aliveriver/astrbot_plugin_continuous_message。
 
 原项目与 SmoothChat 均采用 GNU Affero General Public License v3.0。
 
