@@ -6,14 +6,32 @@
 # https://github.com/aliveriver/astrbot_plugin_continuous_message
 # Copyright (C) aliveriver
 #
-# The adapted portions include the native event reconstruction and
-# event lifecycle handling used to return aggregated messages to
-# the AstrBot processing pipeline.
+# The adapted portions include:
+# - native event reconstruction;
+# - event lifecycle handling used to return aggregated messages to
+#   the AstrBot processing pipeline;
+# - preservation and reconstruction of native image components.
 #
 # Modified for SmoothChat on 2026-07-30.
 # SmoothChat adds group-chat aggregation, per-user buffer isolation,
 # group allowlists and blocklists, trigger modes, automatic flush
-# endings, buffer limits, and native image component preservation.
+# endings, buffer size limits, and lightweight native image component
+# preservation without image downloading, localization, conversion,
+# card parsing, or link enrichment.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public
+# License along with this program. If not, see:
+# https://www.gnu.org/licenses/
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -175,6 +193,17 @@ class SmoothChatPlugin(Star):
         text: str,
         image_components: list
     ) -> None:
+        """
+        将聚合后的文本与原生图片组件写回 AstrBot 消息事件，
+        使重建后的消息继续进入 AstrBot 原生处理管线。
+
+        Native event and image-component reconstruction in this method
+        is adapted from astrbot_plugin_continuous_message:
+        https://github.com/aliveriver/astrbot_plugin_continuous_message
+
+        Modified for SmoothChat's lightweight group-chat aggregation
+        and per-user buffer isolation architecture.
+        """
         event.message_str = text
 
         message_obj = getattr(

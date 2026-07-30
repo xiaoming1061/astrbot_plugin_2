@@ -1,6 +1,6 @@
-name: astrbot_plugin_smoothchat # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
-display_name: 消息聚合 # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
-desc: 自动合并用户连续发送的消息后再交给 AI 处理，减少无效推理，提升对碎片化输入的理解能力。支持群聊、安装即用是它的特点！ # 插件简短描述
-version: v2.0.0 # 插件版本号。格式：v1.1.1 或者 v1.1
+name: astrbot_plugin_smoothchat 
+display_name: 消息聚合 
+desc: 自动合并用户连续发送的消息后再交给 AI 处理，减少无效推理，提升对碎片化输入的理解能力。支持群聊、安装即用是它的特点！ 
+version: v2.1.0 
 author: xiao_ming1001 # 作者
-repo: https://github.com/xiaoming1061/astrbot_plugin_smoothchat # 插件的仓库地址
+repo: https://github.com/xiaoming1061/astrbot_plugin_smoothchat 

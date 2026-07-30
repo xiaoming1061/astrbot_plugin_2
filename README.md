@@ -6,21 +6,24 @@
 
 ## 致谢与来源
 
-SmoothChat 的 AstrBot 原生事件重建及事件生命周期处理方案，
-参考并改编自 https://github.com/aliveriver/astrbot_plugin_continuous_message。
+SmoothChat 的 AstrBot 原生事件重建、事件生命周期处理，以及原生图片组件保留方案，参考并改编自：
+
+- [astrbot_plugin_continuous_message](https://github.com/aliveriver/astrbot_plugin_continuous_message)
+- 原作者：aliveriver
 
 原项目与 SmoothChat 均采用 GNU Affero General Public License v3.0。
 
-SmoothChat 在此基础上针对群聊场景进行了扩展，包括：
+SmoothChat 在相关实现基础上针对群聊场景进行了重新设计和扩展，包括：
 
 - 群聊消息聚合
-- 按群聊与发送者隔离缓冲区
+- 按群聊和发送者隔离缓冲区
 - 群聊白名单与黑名单
 - 群聊触发模式
 - 固定结束符立即提交
 - 最大消息数与字符数限制
+- 轻量级原生图片组件保留
 
-完整修改记录请参阅项目提交历史和`CHANGELOG.md`。
+SmoothChat 仅保留 AstrBot 已解析的原生图片组件，不包含原项目中的图片下载、本地化、GIF 转换、QQ 卡片解析或链接内容增强功能。
 
 ---
 
@@ -241,13 +244,15 @@ mention
 
 ## 版本
 
-**消息聚合（SmoothChat） v2.0.0**
+**消息聚合（SmoothChat） v2.1.0**
 
-- 将模型调用调整为 AstrBot 原生事件流水线
-- 恢复人格、会话历史、长期记忆与工具调用兼容性
-- 新增群聊触发模式
-- 新增最大缓冲限制
+- 新增 AstrBot 原生图片组件保留
+- 支持“图片后补充问题”的连续消息聚合
+- 支持多张图片与文本统一交回 AstrBot 原生处理管线
+- 不包含图片下载、本地化、格式转换或链接解析
 
-原生事件重建方案参考并改编自：
+原生图片组件重建方案参考并改编自：
 - astrbot_plugin_continuous_message
 - https://github.com/aliveriver/astrbot_plugin_continuous_message
+
+相关实现继续遵循 GNU Affero General Public License v3.0。

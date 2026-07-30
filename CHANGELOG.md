@@ -24,3 +24,16 @@
 原生事件重建方案参考并改编自：
 - astrbot_plugin_continuous_message
 - https://github.com/aliveriver/astrbot_plugin_continuous_message
+
+## v2.1.0
+
+- 新增 AstrBot 原生图片组件保留
+- 支持“图片后补充问题”的连续消息聚合
+- 支持多张图片与文本统一交回 AstrBot 原生处理管线
+- 不包含图片下载、本地化、格式转换或链接解析
+
+原生图片组件重建方案参考并改编自：
+- astrbot_plugin_continuous_message
+- https://github.com/aliveriver/astrbot_plugin_continuous_message
+
+相关实现继续遵循 GNU Affero General Public License v3.0。
