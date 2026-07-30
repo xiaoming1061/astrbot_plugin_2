@@ -1,16 +1,12 @@
 import asyncio
 import json
 import time
-from astrbot.api import AstrBotConfig
 from dataclasses import dataclass, field
 
 import astrbot.api.message_components as Comp
 
-from astrbot.api import logger
-from astrbot.api.event import (
-    AstrMessageEvent,
-    MessageChain,
-)
+from astrbot.api import AstrBotConfig, logger
+from astrbot.api.event import AstrMessageEvent
 from astrbot.api.event.filter import (
     event_message_type,
     EventMessageType,
@@ -24,13 +20,13 @@ class BufferedMessage:
     sender_name: str
     components: list
 
-
 @dataclass
 class SessionBuffer:
     messages: list[BufferedMessage] = field(
         default_factory=list
     )
     flush_task: asyncio.Task | None = None
+    flush_event: asyncio.Event | None = None
 
 
 class FactAggregatorPlugin(Star):
@@ -147,6 +143,181 @@ class FactAggregatorPlugin(Star):
 
         return True
 
+    def _reconstruct_event(
+        self,
+        event: AstrMessageEvent,
+        text: str
+    ):
+        event.message_str = text
+
+        message_obj = getattr(
+            event,
+            "message_obj",
+            None
+        )
+
+        if message_obj is None:
+            return
+
+        try:
+            message_obj.message_str = text
+        except Exception:
+            pass
+
+        try:
+            message_obj.message = [
+                Comp.Plain(text)
+            ]
+        except Exception:
+            logger.exception(
+                "[SmoothChat] failed to rebuild message chain"
+            )
+
+        raw_message = getattr(
+            message_obj,
+            "raw_message",
+            None
+        )
+
+        if isinstance(raw_message, dict):
+        try:
+            raw_message["message"] = [
+                {
+                    "type": "text",
+                    "data": {
+                        "text": text
+                    }
+                }
+            ]
+
+            raw_message["raw_message"] = text
+
+        except Exception:
+            logger.exception(
+                "[SmoothChat] failed to rebuild raw message"
+            )
+
+    def _build_merged_text(
+        self,
+        messages: list[BufferedMessage]
+    ) -> str:
+        lines = []
+
+        for message in messages:
+            for component in message.components:
+                if component.get(
+                    "component_type"
+                ) != "Plain":
+                    continue
+
+                text = component.get(
+                    "text",
+                    ""
+                ).strip()
+
+                if text:
+                    lines.append(text)
+
+        return "\n".join(lines).strip()
+
+    def _should_flush_immediately(
+        self,
+        components
+    ) -> bool:
+
+        endings = tuple(
+            str(item)
+            for item in self.config.get(
+                "auto_flush_endings",
+                []
+            )
+            if str(item)
+        )
+
+        if not endings:
+            return False
+
+        for component in components:
+            text = getattr(
+                component,
+                "text",
+                ""
+            ).rstrip()
+
+            if text.endswith(endings):
+                return True
+
+        return False
+
+    def _get_buffer_stats(
+        self,
+        buffer: SessionBuffer
+    ) -> tuple[int, int]:
+
+        message_count = len(
+            buffer.messages
+        )
+
+        char_count = 0
+
+        for buffered_message in buffer.messages:
+            for component in buffered_message.components:
+                if component.get(
+                    "component_type"
+                ) == "Plain":
+                    char_count += len(
+                        component.get(
+                            "text",
+                            ""
+                        )
+                    )
+
+        return message_count, char_count
+
+
+    def _buffer_limit_reached(
+        self,
+        buffer: SessionBuffer
+    ) -> bool:
+
+        message_count, char_count = (
+            self._get_buffer_stats(buffer)
+        )
+
+        max_messages = int(
+            self.config.get(
+                "max_buffer_messages",
+                30
+            )
+        )
+
+        max_chars = int(
+            self.config.get(
+                "max_buffer_chars",
+                8000
+            )
+        )
+
+        message_limit_reached = (
+            max_messages > 0
+            and message_count >= max_messages
+        )
+
+        char_limit_reached = (
+            max_chars > 0
+            and char_count >= max_chars
+        )
+
+        self.debug(
+            f"[SmoothChat] buffer_messages={message_count}, "
+            f"buffer_chars={char_count}"
+        )
+
+        return (
+            message_limit_reached
+            or char_limit_reached
+        )
+
     def debug(self, msg):
 
         if self.config.get(
@@ -162,12 +333,18 @@ class FactAggregatorPlugin(Star):
             if buffer.flush_task:
                 buffer.flush_task.cancel()
 
+            if (
+                buffer.flush_event
+                and not buffer.flush_event.is_set()
+            ):
+                buffer.flush_event.set()
+
+        self.buffers.clear()
 
     @event_message_type(
         EventMessageType.ALL,
         priority=999999
     )
-
     async def on_message(
         self,
         event: AstrMessageEvent
@@ -182,202 +359,215 @@ class FactAggregatorPlugin(Star):
 
         # AstrBot 命令优先放行
         prefixes = tuple(
-            self.config.get(
+            str(item)
+            for item in self.config.get(
                 "command_prefixes",
                 ["/"]
             )
+            if str(item)
         )
 
         if prefixes:
-            for comp in raw_components:
+            for component in raw_components:
                 text = getattr(
-                    comp,
+                    component,
                     "text",
                     ""
                 ).strip()
 
                 if text.startswith(prefixes):
                     self.debug(
-                        "[FACT] command bypass"
+                        "[SmoothChat] command bypass"
                     )
                     return
 
-        # 群聊白名单/黑名单只作用于普通消息
+        # 群聊白名单和黑名单
         if not self.check_group_enabled(event):
             self.debug(
-                "[FACT] group bypass"
+                "[SmoothChat] group bypass"
             )
             return
 
-        # 群聊触发方式
-        if not self.check_group_trigger(event):
+        key = (
+            event.unified_msg_origin,
+            str(event.get_sender_id())
+        )
+
+        # 首条消息需要符合触发条件，后续消息继续加入已有缓冲区
+        if (
+            key not in self.buffers
+            and not self.check_group_trigger(event)
+        ):
             self.debug(
-                "[FACT] group trigger bypass"
+                "[SmoothChat] group trigger bypass"
             )
             return
 
         try:
             components = [
-                self.serialize_component(comp)
-                for comp in raw_components
+                self.serialize_component(component)
+                for component in raw_components
             ]
 
+            current_message = BufferedMessage(
+                timestamp=time.time(),
+                sender_id=str(
+                    event.get_sender_id()
+                ),
+                sender_name=event.get_sender_name(),
+                components=components
+            )
+
+            # 后续消息加入现有缓冲区
+            if key in self.buffers:
+                buffer = self.buffers[key]
+
+                buffer.messages.append(
+                    current_message
+                )
+
+                if buffer.flush_task:
+                    buffer.flush_task.cancel()
+
+                should_flush = (
+                    self._should_flush_immediately(
+                        raw_components
+                    )
+                    or self._buffer_limit_reached(
+                        buffer
+                    )
+                )
+
+                if should_flush:
+                    self.debug(
+                        "[SmoothChat] immediate flush"
+                    )
+
+                    if (
+                        buffer.flush_event
+                        and not buffer.flush_event.is_set()
+                    ):
+                        buffer.flush_event.set()
+
+                else:
+                    buffer.flush_task = (
+                        asyncio.create_task(
+                            self._delayed_flush(key)
+                        )
+                    )
+
+                # 后续消息不能独立进入 AstrBot
+                event.stop_event()
+                return
+
+            # 第一条消息创建缓冲会话
+            flush_event = asyncio.Event()
+
+            buffer = SessionBuffer(
+                messages=[
+                    current_message
+                ],
+                flush_event=flush_event
+            )
+
+            self.buffers[key] = buffer
+
+            should_flush = (
+                self._should_flush_immediately(
+                    raw_components
+                )
+                or self._buffer_limit_reached(
+                    buffer
+                )
+            )
+
+            if should_flush:
+                flush_event.set()
+            else:
+                buffer.flush_task = (
+                    asyncio.create_task(
+                        self._delayed_flush(key)
+                    )
+                )
+
+            self.debug(
+                "[SmoothChat] first event waiting"
+            )
+
+            # 保持首条消息的事件生命周期
+            await flush_event.wait()
+
+            session = self.buffers.pop(
+                key,
+                None
+            )
+
+            if session is None:
+                event.stop_event()
+                return
+
+            if session.flush_task:
+                session.flush_task.cancel()
+
+            merged_text = self._build_merged_text(
+                session.messages
+            )
+
+            if not merged_text:
+                event.stop_event()
+                return
+
+            self.debug(
+                f"[SmoothChat] merged_text={merged_text!r}"
+            )
+
+            # 将聚合结果写回第一条事件
+            self._reconstruct_event(
+                event,
+                merged_text
+            )
+
+            self.debug(
+                "[SmoothChat] event reconstructed"
+            )
+
+            # 这里不要调用 event.stop_event()
+            # 正常返回，使 AstrBot 继续原生处理链
+
+        except asyncio.CancelledError:
+            raise
+
+        except Exception:
+            logger.exception(
+                "[SmoothChat] failed to aggregate message"
+            )
+
+            # 出错时避免残留缓冲区
             key = (
                 event.unified_msg_origin,
                 str(event.get_sender_id())
             )
 
-            if key not in self.buffers:
-                self.buffers[key] = SessionBuffer()
-
-            buffer = self.buffers[key]
-
-            buffer.messages.append(
-                BufferedMessage(
-                    timestamp=time.time(),
-                    sender_id=str(
-                        event.get_sender_id()
-                    ),
-                    sender_name=event.get_sender_name(),
-                    components=components
-                )
+            session = self.buffers.pop(
+                key,
+                None
             )
 
-            message_count = len(
-                buffer.messages
-            )
+            if session:
+                if session.flush_task:
+                    session.flush_task.cancel()
 
-            # 计算当前缓冲区中的文本字符数
-            char_count = 0
-
-            for buffered_message in buffer.messages:
-                for component in buffered_message.components:
-                    if component.get(
-                        "component_type"
-                    ) == "Plain":
-                        char_count += len(
-                            component.get(
-                                "text",
-                                ""
-                            )
-                        )
-
-            self.debug(
-                f"[FACT] buffer_messages={message_count}, "
-                f"buffer_chars={char_count}"
-            )
-
-            # 读取缓冲限制
-            max_messages = int(
-                self.config.get(
-                    "max_buffer_messages",
-                    30
-                )
-            )
-
-            max_chars = int(
-                self.config.get(
-                    "max_buffer_chars",
-                    8000
-                )
-            )
-
-            message_limit_reached = (
-                max_messages > 0
-                and message_count >= max_messages
-            )
-
-            char_limit_reached = (
-                max_chars > 0
-                and char_count >= max_chars
-            )
-
-            limit_reached = (
-                message_limit_reached
-                or char_limit_reached
-            )
-
-            if message_limit_reached:
-                self.debug(
-                    "[FACT] maximum buffer message count reached"
-                )
-
-            if char_limit_reached:
-                self.debug(
-                    "[FACT] maximum buffer character count reached"
-                )
-
-            # 检测是否由固定结束符立即提交
-            ending_reached = False
-
-            endings = tuple(
-                self.config.get(
-                    "auto_flush_endings",
-                    []
-                )
-            )
-
-            if endings:
-                for comp in raw_components:
-                    text = getattr(
-                        comp,
-                        "text",
-                        ""
-                    ).rstrip()
-
-                    if text.endswith(endings):
-                        ending_reached = True
-                        break
-
-            # 命中结束符或达到缓冲限制时立即提交
-            should_flush = (
-                ending_reached
-                or limit_reached
-            )
-
-            # 取消之前的等待任务
-            if buffer.flush_task:
-                buffer.flush_task.cancel()
-
-            if should_flush:
-
-                if ending_reached:
-                    self.debug(
-                        "[FACT] auto flush by ending"
-                    )
-
-                if limit_reached:
-                    self.debug(
-                        "[FACT] auto flush by buffer limit"
-                    )
-
-                buffer.flush_task = asyncio.create_task(
-                    self._flush(key)
-                )
-
-            else:
-                buffer.flush_task = asyncio.create_task(
-                    self._delayed_flush(key)
-                )
-
-            # 阻断 AstrBot 对普通消息的默认回复
-            event.stop_event()
-
-            self.debug(
-                "[FACT] chat intercepted"
-            )
-
-        except Exception:
-            logger.exception(
-                "[FACT] failed to buffer message"
-            )
+                if (
+                    session.flush_event
+                    and not session.flush_event.is_set()
+                ):
+                    session.flush_event.set()
             
     async def _delayed_flush(
         self,
         key
     ):
         try:
-
             flush_timeout = float(
                 self.config.get(
                     "flush_timeout",
@@ -389,314 +579,26 @@ class FactAggregatorPlugin(Star):
                 max(0.1, flush_timeout)
             )
 
-            await self._flush(key)
+            buffer = self.buffers.get(key)
+
+            if (
+                buffer
+                and buffer.flush_event
+                and not buffer.flush_event.is_set()
+            ):
+                self.debug(
+                    "[SmoothChat] timeout flush"
+                )
+
+                buffer.flush_event.set()
 
         except asyncio.CancelledError:
-
             pass
 
-        except Exception as e:
-
-            logger.exception(e)
-
-    async def _flush(
-        self,
-        key
-    ):
-        buffer = self.buffers.get(key)
-
-        if not buffer:
-            return
-
-        if not buffer.messages:
-            return
-
-        messages = buffer.messages
-
-        del self.buffers[key]
-
-        batch = self._build_batch(
-            key,
-            messages
-        )
-
-        logger.info(
-            "\n========== FACT BATCH ==========\n"
-        )
-
-        logger.info(
-            json.dumps(
-                batch,
-                ensure_ascii=False,
-                indent=2
-            )
-        )
-
-        logger.info(
-            "\n===============================\n"
-        )
-
-        try:
-
-            logger.info(
-                "[FACT] entering _process_batch"
-            )
-
-            await self._process_batch(
-                batch
-            )
-
-            logger.info(
-                "[FACT] _process_batch finished"
-            )
-
         except Exception:
             logger.exception(
-                "[FACT] process failed"
+                "[SmoothChat] flush timer failed"
             )
-
-    async def _process_batch(
-        self,
-        batch
-    ):
-        logger.info("[FACT] start")
-
-        umo = batch["session"]["umo"]
-
-        provider_id = await (
-            self.context
-            .get_current_chat_provider_id(
-                umo=umo
-            )
-        )
-
-        prompt = self._build_fact_prompt(
-            batch
-        )
-
-        contexts = None
-
-        try:
-
-            cid = await (
-                self.context.conversation_manager
-                .get_curr_conversation_id(
-                    umo
-                )
-            )
-
-            logger.info(
-                f"[FACT] cid={cid}"
-            )
-
-            if cid:
-
-                conv = await (
-                    self.context.conversation_manager
-                    .get_conversation(
-                        umo,
-                        cid
-                    )
-                )
-
-                logger.info(
-                    f"[FACT] history_len={len(conv.history)}"
-                )
-
-                if conv.history:
-
-                    history_limit = int(
-                        self.config.get(
-                            "history_limit",
-                            20
-                        )
-                    )
-
-                    history = json.loads(
-                        conv.history
-                    )
-
-                    if history_limit > 0:
-                        contexts = history[-history_limit:]
-                    else:
-                        contexts = []
-
-                    self.debug(
-                        f"[FACT] contexts={len(contexts)}"
-                    )
-
-        except Exception:
-            logger.exception(
-                "[FACT] load history failed"
-            )
-
-        logger.info(
-            f"[FACT] provider={provider_id}"
-        )
-
-        resp = await self.context.llm_generate(
-            chat_provider_id=provider_id,
-            contexts=contexts,
-            prompt=prompt
-        )
-
-        answer = resp.completion_text
-
-        self.debug(
-            f"[FACT] answer={answer}"
-        )
-
-        chain = MessageChain()
-
-        chain.chain.append(
-            Comp.Plain(answer)
-        )
-
-        await self.context.send_message(
-            umo,
-            chain
-        )
-
-        logger.info(
-            "[FACT] done"
-        )
-
-    def _fact_system_prompt(
-            self
-        ):
-
-            return """
-    你将收到一种特殊格式：
-
-    <FACT_CONTEXT>
-    ...
-    </FACT_CONTEXT>
-
-    规则：
-
-    1. FACT_CONTEXT 内部内容表示用户短时间内连续发送的消息。
-    2. 应将这些内容视为一次连续输入。
-    3. 不要分析 FACT_CONTEXT 标签。
-    4. 不要解释 FACT_CONTEXT 机制。
-    5. 不要总结 FACT_CONTEXT 结构。
-    6. 保持你当前的人格和对话风格。
-    7. 像正常聊天一样理解并回应用户。
-    """
-
-    def _build_fact_prompt(
-        self,
-        batch
-    ):
-
-        return (
-            self._fact_system_prompt()
-            + "\n\n"
-            + self._render_fact_context(
-                batch
-            )
-        )
-
-    def _render_fact_context(
-        self,
-        batch
-    ):
-
-        lines = []
-
-        lines.append(
-            "<FACT_CONTEXT>"
-        )
-
-        lines.append("")
-
-        for msg in batch["messages"]:
-
-            for comp in msg["components"]:
-
-                component_type = comp.get(
-                    "component_type"
-                )
-
-                if component_type == "Plain":
-
-                    text = comp.get(
-                        "text",
-                        ""
-                    )
-
-                    if text.strip():
-
-                        lines.append(
-                            text
-                        )
-
-                elif component_type == "Image":
-
-                    lines.append(
-                        "[IMAGE]"
-                    )
-
-                elif component_type == "At":
-
-                    lines.append(
-                        "[AT]"
-                    )
-
-                elif component_type == "Record":
-
-                    lines.append(
-                        "[VOICE]"
-                    )
-
-                elif component_type == "Video":
-
-                    lines.append(
-                        "[VIDEO]"
-                    )
-
-                elif component_type == "File":
-
-                    lines.append(
-                        "[FILE]"
-                    )
-
-            lines.append("")
-
-        lines.append(
-            "</FACT_CONTEXT>"
-        )
-
-        return "\n".join(lines)
-
-    def _build_batch(
-        self,
-        key,
-        messages
-    ):
-
-        first_ts = messages[0].timestamp
-
-        return {
-            "schema_version": "3.3",
-            "type": "fact_batch",
-            "session": {
-                "umo": key[0],
-                "sender_id": key[1]
-            },
-            "messages": [
-                {
-                    "message_index": idx,
-                    "offset": round(
-                        msg.timestamp - first_ts,
-                        3
-                    ),
-                    "sender_id": msg.sender_id,
-                    "sender_name": msg.sender_name,
-                    "components": msg.components
-                }
-                for idx, msg in enumerate(messages)
-            ]
-        }
 
     def serialize_component(
         self,
