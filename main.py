@@ -99,6 +99,53 @@ class FactAggregatorPlugin(Star):
         )
 
         return enabled
+    
+    def check_group_trigger(
+        self,
+        event: AstrMessageEvent
+    ) -> bool:
+
+        # 私聊不受群聊触发模式影响
+        if event.is_private_chat():
+            return True
+
+        mode = self.config.get(
+            "group_trigger_mode",
+            "all"
+        )
+
+        # 所有符合条件的群消息均可进入聚合
+        if mode == "all":
+            return True
+
+        # 仅明确提及或唤醒机器人时进入聚合
+        if mode == "mention":
+            try:
+                enabled = bool(
+                    event.is_at_or_wake_command()
+                )
+
+                self.debug(
+                    f"[FACT] group_trigger_mode=mention, "
+                    f"triggered={enabled}"
+                )
+
+                return enabled
+
+            except Exception:
+                logger.exception(
+                    "[FACT] failed to detect mention"
+                )
+
+                return False
+
+        # 未知配置值默认使用 all
+        self.debug(
+            f"[FACT] unknown group_trigger_mode={mode}, "
+            "fallback to all"
+        )
+
+        return True
 
     def debug(self, msg):
 
@@ -162,6 +209,13 @@ class FactAggregatorPlugin(Star):
             )
             return
 
+        # 群聊触发方式
+        if not self.check_group_trigger(event):
+            self.debug(
+                "[FACT] group trigger bypass"
+            )
+            return
+
         try:
             components = [
                 self.serialize_component(comp)
@@ -189,12 +243,72 @@ class FactAggregatorPlugin(Star):
                 )
             )
 
-            self.debug(
-                f"[FACT] buffer_size={len(buffer.messages)}"
+            message_count = len(
+                buffer.messages
             )
 
+            # 计算当前缓冲区中的文本字符数
+            char_count = 0
+
+            for buffered_message in buffer.messages:
+                for component in buffered_message.components:
+                    if component.get(
+                        "component_type"
+                    ) == "Plain":
+                        char_count += len(
+                            component.get(
+                                "text",
+                                ""
+                            )
+                        )
+
+            self.debug(
+                f"[FACT] buffer_messages={message_count}, "
+                f"buffer_chars={char_count}"
+            )
+
+            # 读取缓冲限制
+            max_messages = int(
+                self.config.get(
+                    "max_buffer_messages",
+                    30
+                )
+            )
+
+            max_chars = int(
+                self.config.get(
+                    "max_buffer_chars",
+                    8000
+                )
+            )
+
+            message_limit_reached = (
+                max_messages > 0
+                and message_count >= max_messages
+            )
+
+            char_limit_reached = (
+                max_chars > 0
+                and char_count >= max_chars
+            )
+
+            limit_reached = (
+                message_limit_reached
+                or char_limit_reached
+            )
+
+            if message_limit_reached:
+                self.debug(
+                    "[FACT] maximum buffer message count reached"
+                )
+
+            if char_limit_reached:
+                self.debug(
+                    "[FACT] maximum buffer character count reached"
+                )
+
             # 检测是否由固定结束符立即提交
-            should_flush = False
+            ending_reached = False
 
             endings = tuple(
                 self.config.get(
@@ -212,17 +326,30 @@ class FactAggregatorPlugin(Star):
                     ).rstrip()
 
                     if text.endswith(endings):
-                        should_flush = True
+                        ending_reached = True
                         break
+
+            # 命中结束符或达到缓冲限制时立即提交
+            should_flush = (
+                ending_reached
+                or limit_reached
+            )
 
             # 取消之前的等待任务
             if buffer.flush_task:
                 buffer.flush_task.cancel()
 
             if should_flush:
-                self.debug(
-                    "[FACT] auto flush"
-                )
+
+                if ending_reached:
+                    self.debug(
+                        "[FACT] auto flush by ending"
+                    )
+
+                if limit_reached:
+                    self.debug(
+                        "[FACT] auto flush by buffer limit"
+                    )
 
                 buffer.flush_task = asyncio.create_task(
                     self._flush(key)
@@ -377,11 +504,6 @@ class FactAggregatorPlugin(Star):
                 )
 
                 if conv.history:
-
-                    history_limit = self.config.get(
-                        "history_limit",
-                        20
-                    )
 
                     history_limit = int(
                         self.config.get(

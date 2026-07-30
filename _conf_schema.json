@@ -1,4 +1,9 @@
 {
+    "debug_log": {
+    "description": "启用调试日志",
+    "type": "bool",
+    "default": false
+  },
   "flush_timeout": {
     "description": "消息聚合等待时间（秒）",
     "type": "float",
@@ -9,6 +14,18 @@
     "type": "int",
     "default": 20
   },
+    "max_buffer_messages": {
+    "description": "单个缓冲区最大消息数",
+    "type": "int",
+    "default": 30,
+    "hint": "达到此数量后立即提交，不再等待聚合超时。设置为 0 表示不限制。"
+  },
+  "max_buffer_chars": {
+    "description": "单个缓冲区最大文本字符数",
+    "type": "int",
+    "default": 8000,
+    "hint": "缓冲文本达到此长度后立即提交。设置为 0 表示不限制。"
+  },
   "command_prefixes": {
     "description": "命令前缀",
     "type": "list",
@@ -16,10 +33,15 @@
       "/"
     ]
   },
-  "debug_log": {
-    "description": "启用调试日志",
-    "type": "bool",
-    "default": false
+  "auto_flush_endings": {
+    "description": "检测到这些结尾时立即提交",
+    "type": "list",
+    "default": [
+      "！",
+      "？",
+      "!",
+      "?"
+    ]
   },
   "group_mode": {
     "description": "群聊过滤模式",
@@ -36,14 +58,14 @@
     "type": "list",
     "default": []
   },
-  "auto_flush_endings": {
-    "description": "检测到这些结尾时立即提交",
-    "type": "list",
-    "default": [
-      "！",
-      "？",
-      "!",
-      "?"
-    ]
+  "group_trigger_mode": {
+    "description": "群聊触发模式",
+    "type": "string",
+    "default": "all",
+    "options": [
+      "all",
+      "mention"
+    ],
+    "hint": "all 表示处理所有满足条件的群聊消息；mention 表示仅处理明确提及机器人或唤醒机器人的消息。"
   }
 }
