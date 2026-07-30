@@ -4,6 +4,26 @@
 
 ---
 
+## 致谢与来源
+
+SmoothChat 的 AstrBot 原生事件重建及事件生命周期处理方案，
+参考并改编自 原项目地址。
+
+原项目与 SmoothChat 均采用 GNU Affero General Public License v3.0。
+
+SmoothChat 在此基础上针对群聊场景进行了扩展，包括：
+
+- 群聊消息聚合
+- 按群聊与发送者隔离缓冲区
+- 群聊白名单与黑名单
+- 群聊触发模式
+- 固定结束符立即提交
+- 最大消息数与字符数限制
+
+完整修改记录请参阅项目提交历史和`CHANGELOG.md`。
+
+---
+
 ## 功能介绍
 
 许多用户习惯拆分发送消息：
@@ -85,26 +105,6 @@ persona
 
 ---
 
-### 注入历史消息数量
-
-默认值：
-
-```json
-20
-```
-
-说明：
-
-数值越大，上下文连续性越强，但会增加 Token 消耗。
-
-推荐范围：
-
-```text
-10 ~ 30
-```
-
----
-
 ### 命令前缀
 
 默认值：
@@ -170,48 +170,15 @@ false
 
 ---
 
-## 推荐配置
-
-### 默认模式
-
-```json
-{
-  "flush_timeout": 5.0,
-  "history_limit": 20
-}
-```
-
-### 快速响应模式
-
-```json
-{
-  "flush_timeout": 3.0,
-  "history_limit": 10
-}
-```
-
-### 长对话模式
-
-```json
-{
-  "flush_timeout": 10.0,
-  "history_limit": 30
-}
-```
-
----
-
 ## 版本
 
-**消息聚合（SmoothChat） v1.0.0**
+**消息聚合（SmoothChat） v2.0.0**
 
-- 连续消息自动聚合
-- 保留 AstrBot 会话上下文
-- 支持群聊与私聊
-- 自动绕过 AstrBot 指令
-- 支持配置化管理
-- 兼容 NapCat 等常见适配器
+- 将模型调用调整为 AstrBot 原生事件流水线
+- 恢复人格、会话历史、长期记忆与工具调用兼容性
+- 新增群聊触发模式
+- 新增最大缓冲限制
 
-**消息聚合（SmoothChat） v1.1.0**
-- 群聊白名单与黑名单
-- 固定结束符立即提交
+原生事件重建方案参考并改编自：
+- astrbot_plugin_continuous_message
+- https://github.com/aliveriver/astrbot_plugin_continuous_message

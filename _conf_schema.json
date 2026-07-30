@@ -9,11 +9,6 @@
     "type": "float",
     "default": 5.0
   },
-  "history_limit": {
-    "description": "注入历史消息数量",
-    "type": "int",
-    "default": 20
-  },
     "max_buffer_messages": {
     "description": "单个缓冲区最大消息数",
     "type": "int",

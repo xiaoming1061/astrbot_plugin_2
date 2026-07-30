@@ -1,3 +1,36 @@
+# SmoothChat - AstrBot message aggregation plugin
+# Copyright (C) 2026 xiao_ming1001
+#
+# This file includes code and design adapted from:
+# astrbot_plugin_continuous_message
+# https://github.com/aliveriver/astrbot_plugin_continuous_message
+# Copyright (C) aliveriver
+#
+# The adapted portions include the native event reconstruction and
+# event lifecycle handling used to return aggregated messages to
+# the AstrBot processing pipeline.
+#
+# Modified for SmoothChat on 2026-07-30.
+# SmoothChat adds group-chat aggregation, per-user buffer isolation,
+# group allowlists and blocklists, trigger modes, automatic flush
+# endings, and buffer size limits.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public
+# License along with this program. If not, see:
+# https://www.gnu.org/licenses/
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 import asyncio
 import json
 import time
@@ -148,6 +181,14 @@ class FactAggregatorPlugin(Star):
         event: AstrMessageEvent,
         text: str
     ):
+        """
+        将聚合文本写回 AstrBot 原始事件，使消息继续进入原生处理管线。
+
+        The event reconstruction approach in this method was adapted from:
+        https://github.com/aliveriver/astrbot_plugin_continuous_message
+        
+        Modified for SmoothChat's cross-session and group-chat architecture.
+        """
         event.message_str = text
 
         message_obj = getattr(
