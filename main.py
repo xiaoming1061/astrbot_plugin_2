@@ -180,22 +180,22 @@ class FactAggregatorPlugin(Star):
         )
 
         if isinstance(raw_message, dict):
-        try:
-            raw_message["message"] = [
-                {
-                    "type": "text",
-                    "data": {
-                        "text": text
+            try:
+                raw_message["message"] = [
+                    {
+                        "type": "text",
+                        "data": {
+                            "text": text
+                        }
                     }
-                }
-            ]
+                ]
 
-            raw_message["raw_message"] = text
+                raw_message["raw_message"] = text
 
-        except Exception:
-            logger.exception(
-                "[SmoothChat] failed to rebuild raw message"
-            )
+            except Exception:
+                logger.exception(
+                    "[SmoothChat] failed to rebuild raw message"
+                )
 
     def _build_merged_text(
         self,
@@ -376,9 +376,33 @@ class FactAggregatorPlugin(Star):
                 ).strip()
 
                 if text.startswith(prefixes):
+                    command_key = (
+                        event.unified_msg_origin,
+                        str(event.get_sender_id())
+                    )
+
+                    buffer = self.buffers.get(
+                        command_key
+                    )
+
+                    if (
+                        buffer
+                        and buffer.flush_event
+                        and not buffer.flush_event.is_set()
+                    ):
+                        if buffer.flush_task:
+                            buffer.flush_task.cancel()
+
+                        buffer.flush_event.set()
+
+                        self.debug(
+                            "[SmoothChat] active buffer flushed before command"
+                        )
+
                     self.debug(
                         "[SmoothChat] command bypass"
                     )
+
                     return
 
         # 群聊白名单和黑名单
