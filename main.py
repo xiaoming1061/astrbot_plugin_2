@@ -13,21 +13,7 @@
 # Modified for SmoothChat on 2026-07-30.
 # SmoothChat adds group-chat aggregation, per-user buffer isolation,
 # group allowlists and blocklists, trigger modes, automatic flush
-# endings, and buffer size limits.
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public
-# License along with this program. If not, see:
-# https://www.gnu.org/licenses/
+# endings, buffer limits, and native image component preservation.
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -51,7 +37,14 @@ class BufferedMessage:
     timestamp: float
     sender_id: str
     sender_name: str
+
+    # 序列化组件，用于统计文本和构建聚合内容
     components: list
+
+    # AstrBot 原生图片组件，用于事件重建
+    image_components: list = field(
+        default_factory=list
+    )
 
 @dataclass
 class SessionBuffer:
@@ -62,7 +55,7 @@ class SessionBuffer:
     flush_event: asyncio.Event | None = None
 
 
-class FactAggregatorPlugin(Star):
+class SmoothChatPlugin(Star):
 
     def __init__(
         self,
@@ -106,7 +99,7 @@ class FactAggregatorPlugin(Star):
 
         if group_id is None:
             self.debug(
-                "[FACT] 无法获取群号，默认放行"
+                "[SmoothChat] 无法获取群号，默认放行"
             )
             return True
 
@@ -122,7 +115,7 @@ class FactAggregatorPlugin(Star):
             enabled = True
 
         self.debug(
-            f"[FACT] group_id={group_id}, "
+            f"[SmoothChat] group_id={group_id}, "
             f"group_mode={mode}, "
             f"group_enabled={enabled}"
         )
@@ -155,7 +148,7 @@ class FactAggregatorPlugin(Star):
                 )
 
                 self.debug(
-                    f"[FACT] group_trigger_mode=mention, "
+                    f"[SmoothChat] group_trigger_mode=mention, "
                     f"triggered={enabled}"
                 )
 
@@ -163,14 +156,14 @@ class FactAggregatorPlugin(Star):
 
             except Exception:
                 logger.exception(
-                    "[FACT] failed to detect mention"
+                    "[SmoothChat] failed to detect mention"
                 )
 
                 return False
 
         # 未知配置值默认使用 all
         self.debug(
-            f"[FACT] unknown group_trigger_mode={mode}, "
+            f"[SmoothChat] unknown group_trigger_mode={mode}, "
             "fallback to all"
         )
 
@@ -179,16 +172,9 @@ class FactAggregatorPlugin(Star):
     def _reconstruct_event(
         self,
         event: AstrMessageEvent,
-        text: str
-    ):
-        """
-        将聚合文本写回 AstrBot 原始事件，使消息继续进入原生处理管线。
-
-        The event reconstruction approach in this method was adapted from:
-        https://github.com/aliveriver/astrbot_plugin_continuous_message
-        
-        Modified for SmoothChat's cross-session and group-chat architecture.
-        """
+        text: str,
+        image_components: list
+    ) -> None:
         event.message_str = text
 
         message_obj = getattr(
@@ -206,9 +192,19 @@ class FactAggregatorPlugin(Star):
             pass
 
         try:
-            message_obj.message = [
-                Comp.Plain(text)
-            ]
+            chain = []
+
+            if text:
+                chain.append(
+                    Comp.Plain(text)
+                )
+
+            chain.extend(
+                image_components
+            )
+
+            message_obj.message = chain
+
         except Exception:
             logger.exception(
                 "[SmoothChat] failed to rebuild message chain"
@@ -220,23 +216,75 @@ class FactAggregatorPlugin(Star):
             None
         )
 
-        if isinstance(raw_message, dict):
-            try:
-                raw_message["message"] = [
+        if not isinstance(raw_message, dict):
+            return
+
+        try:
+            raw_segments = []
+
+            if text:
+                raw_segments.append(
                     {
                         "type": "text",
                         "data": {
                             "text": text
                         }
                     }
-                ]
-
-                raw_message["raw_message"] = text
-
-            except Exception:
-                logger.exception(
-                    "[SmoothChat] failed to rebuild raw message"
                 )
+
+            for image in image_components:
+                image_ref = (
+                    getattr(image, "url", None)
+                    or getattr(image, "file", None)
+                )
+
+                if not image_ref:
+                    continue
+
+                image_ref = str(image_ref)
+
+                image_data = {
+                    "file": image_ref
+                }
+
+                if image_ref.startswith(
+                    ("http://", "https://")
+                ):
+                    image_data["url"] = image_ref
+
+                raw_segments.append(
+                    {
+                        "type": "image",
+                        "data": image_data
+                    }
+                )
+
+            raw_message["message"] = raw_segments
+            raw_message["raw_message"] = text
+
+        except Exception:
+            logger.exception(
+                "[SmoothChat] failed to rebuild raw message"
+            )
+
+    @staticmethod
+    def _is_image_component(
+        component
+    ) -> bool:
+        return type(component).__name__ == "Image"
+
+    def _collect_image_components(
+        self,
+        messages: list[BufferedMessage]
+    ) -> list:
+        images = []
+
+        for message in messages:
+            images.extend(
+                message.image_components
+            )
+
+        return images
 
     def _build_merged_text(
         self,
@@ -391,12 +439,20 @@ class FactAggregatorPlugin(Star):
         event: AstrMessageEvent
     ):
         msg = event.get_message_str()
-
-        # 空消息过滤
-        if not msg or not msg.strip():
-            return
-
         raw_components = event.get_messages()
+
+        has_text = bool(
+            msg and msg.strip()
+        )
+
+        has_image = any(
+            self._is_image_component(component)
+            for component in raw_components
+        )
+
+        # 没有文字也没有图片才视为空消息
+        if not has_text and not has_image:
+            return
 
         # AstrBot 命令优先放行
         prefixes = tuple(
@@ -474,13 +530,20 @@ class FactAggregatorPlugin(Star):
                 for component in raw_components
             ]
 
+            image_components = [
+                component
+                for component in raw_components
+                if self._is_image_component(component)
+            ]
+
             current_message = BufferedMessage(
                 timestamp=time.time(),
                 sender_id=str(
                     event.get_sender_id()
                 ),
                 sender_name=event.get_sender_name(),
-                components=components
+                components=components,
+                image_components=image_components
             )
 
             # 后续消息加入现有缓冲区
@@ -578,10 +641,14 @@ class FactAggregatorPlugin(Star):
                 session.messages
             )
 
-            if not merged_text:
+            merged_images = self._collect_image_components(
+                session.messages
+            )
+
+            if not merged_text and not merged_images:
                 event.stop_event()
                 return
-
+            
             self.debug(
                 f"[SmoothChat] merged_text={merged_text!r}"
             )
@@ -589,11 +656,14 @@ class FactAggregatorPlugin(Star):
             # 将聚合结果写回第一条事件
             self._reconstruct_event(
                 event,
-                merged_text
+                merged_text,
+                merged_images
             )
 
             self.debug(
-                "[SmoothChat] event reconstructed"
+                f"[SmoothChat] event reconstructed, "
+                f"text_length={len(merged_text)}, "
+                f"image_count={len(merged_images)}"
             )
 
             # 这里不要调用 event.stop_event()
