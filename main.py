@@ -115,7 +115,8 @@ class SmoothChatPlugin(Star):
 
         group_id = event.get_group_id()
 
-        if group_id is None:
+        # get_group_id() 可能返回 None 或空字符串，统一视为“无法获取”
+        if not group_id:
             self.debug(
                 "[SmoothChat] 无法获取群号，默认放行"
             )
@@ -160,24 +161,21 @@ class SmoothChatPlugin(Star):
 
         # 仅明确提及或唤醒机器人时进入聚合
         if mode == "mention":
-            try:
-                enabled = bool(
-                    event.is_at_or_wake_command()
+            # is_at_or_wake_command 是事件属性（bool），不是方法
+            enabled = bool(
+                getattr(
+                    event,
+                    "is_at_or_wake_command",
+                    False
                 )
+            )
 
-                self.debug(
-                    f"[SmoothChat] group_trigger_mode=mention, "
-                    f"triggered={enabled}"
-                )
+            self.debug(
+                f"[SmoothChat] group_trigger_mode=mention, "
+                f"triggered={enabled}"
+            )
 
-                return enabled
-
-            except Exception:
-                logger.exception(
-                    "[SmoothChat] failed to detect mention"
-                )
-
-                return False
+            return enabled
 
         # 未知配置值默认使用 all
         self.debug(
@@ -495,10 +493,12 @@ class SmoothChatPlugin(Star):
 
         if prefixes:
             for component in raw_components:
-                text = getattr(
-                    component,
-                    "text",
-                    ""
+                text = str(
+                    getattr(
+                        component,
+                        "text",
+                        ""
+                    ) or ""
                 ).strip()
 
                 if text.startswith(prefixes):
