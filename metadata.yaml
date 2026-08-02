@@ -1,6 +1,6 @@
 name: astrbot_plugin_smoothchat 
 display_name: 消息聚合 
 desc: 自动合并用户连续发送的消息后再交给 AI 处理，减少无效推理，提升对碎片化输入的理解能力。支持群聊、安装即用是它的特点！ 
-version: v2.1.1 
+version: v2.2.0 
 author: xiao_ming1001 # 作者
 repo: https://github.com/xiaoming1061/astrbot_plugin_smoothchat 

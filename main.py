@@ -185,6 +185,25 @@ class SmoothChatPlugin(Star):
 
         return True
 
+    def _get_buffer_key(
+        self,
+        event: AstrMessageEvent
+    ):
+        # group 模式：整个群共用一个缓冲区；私聊与 per_user 模式仍按发送者隔离
+        if (
+            self.config.get(
+                "merge_mode",
+                "per_user"
+            ) == "group"
+            and not event.is_private_chat()
+        ):
+            return event.unified_msg_origin
+
+        return (
+            event.unified_msg_origin,
+            str(event.get_sender_id())
+        )
+
     def _reconstruct_event(
         self,
         event: AstrMessageEvent,
@@ -317,24 +336,85 @@ class SmoothChatPlugin(Star):
         self,
         messages: list[BufferedMessage]
     ) -> str:
+        # group 模式：把群聊窗口内多个用户的消息合并成带说话人标注的对话流
+        if (
+            self.config.get(
+                "merge_mode",
+                "per_user"
+            ) == "group"
+        ):
+            lines = []
+
+            for message in messages:
+                texts = self._collect_plain_texts(
+                    message
+                )
+
+                if not texts:
+                    continue
+
+                sender = self._sanitize_sender_name(
+                    message.sender_name
+                    or message.sender_id
+                    or "未知用户"
+                )
+
+                lines.append(
+                    f"[{sender}] {' '.join(texts)}"
+                )
+
+            return "\n".join(lines).strip()
+
+        # per_user 模式：保持原有的纯文本拼接
         lines = []
 
         for message in messages:
-            for component in message.components:
-                if component.get(
-                    "component_type"
-                ) != "Plain":
-                    continue
-
-                text = component.get(
-                    "text",
-                    ""
-                ).strip()
-
-                if text:
-                    lines.append(text)
+            lines.extend(
+                self._collect_plain_texts(
+                    message
+                )
+            )
 
         return "\n".join(lines).strip()
+
+    @staticmethod
+    def _collect_plain_texts(
+        message: BufferedMessage
+    ) -> list[str]:
+        texts = []
+
+        for component in message.components:
+            if component.get(
+                "component_type"
+            ) != "Plain":
+                continue
+
+            text = component.get(
+                "text",
+                ""
+            ).strip()
+
+            if text:
+                texts.append(text)
+
+        return texts
+
+    @staticmethod
+    def _sanitize_sender_name(
+        sender_name: str
+    ) -> str:
+        # 昵称不可信：压缩空白/换行，并移除方括号避免破坏 [昵称] 格式
+        name = " ".join(
+            str(sender_name).split()
+        )
+
+        return name.replace(
+            "[",
+            ""
+        ).replace(
+            "]",
+            ""
+        )
 
     def _should_flush_immediately(
         self,
@@ -502,9 +582,8 @@ class SmoothChatPlugin(Star):
                 ).strip()
 
                 if text.startswith(prefixes):
-                    command_key = (
-                        event.unified_msg_origin,
-                        str(event.get_sender_id())
+                    command_key = self._get_buffer_key(
+                        event
                     )
 
                     buffer = self.buffers.get(
@@ -538,9 +617,8 @@ class SmoothChatPlugin(Star):
             )
             return
 
-        key = (
-            event.unified_msg_origin,
-            str(event.get_sender_id())
+        key = self._get_buffer_key(
+            event
         )
 
         # 首条消息需要符合触发条件，后续消息继续加入已有缓冲区
@@ -707,9 +785,8 @@ class SmoothChatPlugin(Star):
             )
 
             # 出错时避免残留缓冲区
-            key = (
-                event.unified_msg_origin,
-                str(event.get_sender_id())
+            key = self._get_buffer_key(
+                event
             )
 
             session = self.buffers.pop(
