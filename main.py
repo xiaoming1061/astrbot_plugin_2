@@ -185,6 +185,46 @@ class SmoothChatPlugin(Star):
 
         return True
 
+    def _is_command_message(
+        self,
+        event: AstrMessageEvent,
+        raw_components
+    ) -> bool:
+        # AstrBot 在 waking_check 阶段已匹配的注册命令
+        # （如私聊直接输入命令名、群聊 @机器人 + 命令名）
+        if event.get_extra(
+            "handlers_parsed_params",
+            {}
+        ):
+            return True
+
+        # 兜底：以配置的命令前缀开头的消息（如未注册的 /xxx）
+        prefixes = tuple(
+            str(item)
+            for item in self.config.get(
+                "command_prefixes",
+                ["/"]
+            )
+            if str(item)
+        )
+
+        if not prefixes:
+            return False
+
+        for component in raw_components:
+            text = str(
+                getattr(
+                    component,
+                    "text",
+                    ""
+                ) or ""
+            ).strip()
+
+            if text.startswith(prefixes):
+                return True
+
+        return False
+
     def _get_buffer_key(
         self,
         event: AstrMessageEvent
@@ -561,54 +601,40 @@ class SmoothChatPlugin(Star):
         if not has_text and not has_image:
             return
 
-        # AstrBot 命令优先放行
-        prefixes = tuple(
-            str(item)
-            for item in self.config.get(
-                "command_prefixes",
-                ["/"]
+        # AstrBot 命令优先放行：
+        # 已被 AstrBot 匹配的注册命令直接放行（私聊无需 / 前缀）；
+        # 以命令前缀开头的消息兜底放行（兼容未注册的 /xxx）。
+        if self._is_command_message(
+            event,
+            raw_components
+        ):
+            command_key = self._get_buffer_key(
+                event
             )
-            if str(item)
-        )
 
-        if prefixes:
-            for component in raw_components:
-                text = str(
-                    getattr(
-                        component,
-                        "text",
-                        ""
-                    ) or ""
-                ).strip()
+            buffer = self.buffers.get(
+                command_key
+            )
 
-                if text.startswith(prefixes):
-                    command_key = self._get_buffer_key(
-                        event
-                    )
+            if (
+                buffer
+                and buffer.flush_event
+                and not buffer.flush_event.is_set()
+            ):
+                if buffer.flush_task:
+                    buffer.flush_task.cancel()
 
-                    buffer = self.buffers.get(
-                        command_key
-                    )
+                buffer.flush_event.set()
 
-                    if (
-                        buffer
-                        and buffer.flush_event
-                        and not buffer.flush_event.is_set()
-                    ):
-                        if buffer.flush_task:
-                            buffer.flush_task.cancel()
+                self.debug(
+                    "[SmoothChat] active buffer flushed before command"
+                )
 
-                        buffer.flush_event.set()
+            self.debug(
+                "[SmoothChat] command bypass"
+            )
 
-                        self.debug(
-                            "[SmoothChat] active buffer flushed before command"
-                        )
-
-                    self.debug(
-                        "[SmoothChat] command bypass"
-                    )
-
-                    return
+            return
 
         # 群聊白名单和黑名单
         if not self.check_group_enabled(event):
